@@ -6,9 +6,11 @@ const getTimestampMillis = require('getTimestampMillis');
 const getContainerVersion = require('getContainerVersion');
 const logToConsole = require('logToConsole');
 const getRequestHeader = require('getRequestHeader');
+const getAllEventData = require('getAllEventData');
 
 const isLoggingEnabled = determinateIsLoggingEnabled();
 const traceId = isLoggingEnabled ? getRequestHeader('trace-id') : undefined;
+const eventData = getAllEventData();
 
 const apiVersion = '18.0';
 const postUrl =
@@ -29,7 +31,7 @@ if (data.testId) postBody.test_event_code = data.testId;
 if (isLoggingEnabled) {
   logToConsole(
     JSON.stringify({
-      Name: 'Facebook',
+      Name: 'FacebookLead',
       Type: 'Request',
       TraceId: traceId,
       EventName: mappedEventData.event_name,
@@ -46,7 +48,7 @@ sendHttpRequest(
     if (isLoggingEnabled) {
       logToConsole(
         JSON.stringify({
-          Name: 'Facebook',
+          Name: 'FacebookLead',
           Type: 'Response',
           TraceId: traceId,
           EventName: mappedEventData.event_name,
@@ -68,7 +70,11 @@ sendHttpRequest(
 
 function getMappedEventData() {
   return {
-    event_name: data.eventName,
+    event_name:
+      data.eventName ||
+      eventData.event_name ||
+      eventData.eventName ||
+      eventData.event,
     action_source: 'system_generated',
     event_time: data.eventTime || Math.round(getTimestampMillis() / 1000),
     custom_data: {
