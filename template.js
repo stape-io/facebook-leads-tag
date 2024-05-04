@@ -1,4 +1,5 @@
 const encodeUriComponent = require('encodeUriComponent');
+const encodeUri = require('encodeUri');
 const JSON = require('JSON');
 const Math = require('Math');
 const sendHttpRequest = require('sendHttpRequest');
@@ -12,12 +13,12 @@ const isLoggingEnabled = determinateIsLoggingEnabled();
 const traceId = isLoggingEnabled ? getRequestHeader('trace-id') : undefined;
 const eventData = getAllEventData();
 
-const apiVersion = '18.0';
+const apiVersion = '19.0';
 const postUrl =
   'https://graph.facebook.com/v' +
   apiVersion +
   '/' +
-  enc(data.pixelId) +
+  encPath(data.pixelId) +
   '/events?access_token=' +
   enc(data.accessToken);
 
@@ -90,6 +91,11 @@ function getMappedEventData() {
 function enc(data) {
   data = data || '';
   return encodeUriComponent(data);
+}
+
+function encPath(data) {
+  data = data || '';
+  return encodeUri(data);
 }
 
 function determinateIsLoggingEnabled() {

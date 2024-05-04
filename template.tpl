@@ -1,4 +1,4 @@
-___TERMS_OF_SERVICE___
+﻿___TERMS_OF_SERVICE___
 
 By creating or modifying this file you agree to Google Tag Manager's Community
 Template Gallery Developer Terms of Service available at
@@ -13,7 +13,7 @@ ___INFO___
   "id": "cvt_temp_public_id",
   "version": 1,
   "securityGroups": [],
-  "displayName": "Facebook Leads Tag",
+  "displayName": "Facebook Leads API",
   "brand": {
     "id": "brand_dummy",
     "displayName": "Stape",
@@ -132,6 +132,7 @@ ___TEMPLATE_PARAMETERS___
 ___SANDBOXED_JS_FOR_SERVER___
 
 const encodeUriComponent = require('encodeUriComponent');
+const encodeUri = require('encodeUri');
 const JSON = require('JSON');
 const Math = require('Math');
 const sendHttpRequest = require('sendHttpRequest');
@@ -145,12 +146,12 @@ const isLoggingEnabled = determinateIsLoggingEnabled();
 const traceId = isLoggingEnabled ? getRequestHeader('trace-id') : undefined;
 const eventData = getAllEventData();
 
-const apiVersion = '18.0';
+const apiVersion = '19.0';
 const postUrl =
   'https://graph.facebook.com/v' +
   apiVersion +
   '/' +
-  enc(data.pixelId) +
+  encPath(data.pixelId) +
   '/events?access_token=' +
   enc(data.accessToken);
 
@@ -223,6 +224,11 @@ function getMappedEventData() {
 function enc(data) {
   data = data || '';
   return encodeUriComponent(data);
+}
+
+function encPath(data) {
+  data = data || '';
+  return encodeUri(data);
 }
 
 function determinateIsLoggingEnabled() {
