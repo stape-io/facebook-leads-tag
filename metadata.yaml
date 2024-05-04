@@ -1,5 +1,7 @@
 homepage: "https://stape.io/"
 documentation: "https://stape.io/blog/facebook-leads-tag-for-server-gtm"
 versions:
+  - sha: 4d0860b4dc785b8b848da1e893da06d0c1f64df9
+    changeNotes: Update to API v19.
   - sha: a4cea1642c49776cf5aaa8caff34f198c3ca9e22
     changeNotes: Initial release.
