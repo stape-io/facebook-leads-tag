@@ -9,11 +9,13 @@ const logToConsole = require('logToConsole');
 const getRequestHeader = require('getRequestHeader');
 const getAllEventData = require('getAllEventData');
 
+/**********************************************************************************************/
+
 const isLoggingEnabled = determinateIsLoggingEnabled();
 const traceId = isLoggingEnabled ? getRequestHeader('trace-id') : undefined;
 const eventData = getAllEventData();
 
-const apiVersion = '19.0';
+const apiVersion = '22.0';
 const postUrl =
   'https://graph.facebook.com/v' +
   apiVersion +
@@ -69,6 +71,9 @@ sendHttpRequest(
   JSON.stringify(postBody)
 );
 
+/**********************************************************************************************/
+// Vendor related functions
+
 function getMappedEventData() {
   return {
     event_name:
@@ -87,6 +92,9 @@ function getMappedEventData() {
     }
   };
 }
+
+/**********************************************************************************************/
+// Helpers
 
 function enc(data) {
   data = data || '';
