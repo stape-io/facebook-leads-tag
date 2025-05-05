@@ -9,4 +9,4 @@ You can use this tag for the Google Tag Manager Server Side container to impleme
 
 ## Open Source
 
-Facebook Leads API Tag for GTM Server Side is developed and maintained by [Stape Team](https://stape.io/) under the Apache 2.0 license.
+The **Facebook Leads API Tag for GTM Server Side** is developed and maintained by [Stape Team](https://stape.io/) under the Apache 2.0 license.
