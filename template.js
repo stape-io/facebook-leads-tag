@@ -97,13 +97,11 @@ function getMappedEventData() {
 // Helpers
 
 function enc(data) {
-  data = data || '';
-  return encodeUriComponent(data);
+  return encodeUriComponent(data || '');
 }
 
 function encPath(data) {
-  data = data || '';
-  return encodeUri(data);
+  return encodeUri(data || '');
 }
 
 function determinateIsLoggingEnabled() {
