@@ -148,7 +148,7 @@ const isLoggingEnabled = determinateIsLoggingEnabled();
 const traceId = isLoggingEnabled ? getRequestHeader('trace-id') : undefined;
 const eventData = getAllEventData();
 
-const apiVersion = '22.0';
+const apiVersion = '24.0';
 const postUrl =
   'https://graph.facebook.com/v' +
   apiVersion +
@@ -421,4 +421,5 @@ scenarios: []
 ___NOTES___
 
 Created on 03/04/2024, 14:11:51
+
 
