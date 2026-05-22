@@ -148,10 +148,10 @@ const isLoggingEnabled = determinateIsLoggingEnabled();
 const traceId = isLoggingEnabled ? getRequestHeader('trace-id') : undefined;
 const eventData = getAllEventData();
 
-const apiVersion = '24.0';
+const API_VERSION = '25.0';
 const postUrl =
   'https://graph.facebook.com/v' +
-  apiVersion +
+  API_VERSION +
   '/' +
   encPath(data.pixelId) +
   '/events?access_token=' +
@@ -209,11 +209,7 @@ sendHttpRequest(
 
 function getMappedEventData() {
   return {
-    event_name:
-      data.eventName ||
-      eventData.event_name ||
-      eventData.eventName ||
-      eventData.event,
+    event_name: data.eventName || eventData.event_name || eventData.eventName || eventData.event,
     action_source: 'system_generated',
     event_time: data.eventTime || Math.round(getTimestampMillis() / 1000),
     custom_data: {
@@ -419,6 +415,10 @@ scenarios: []
 
 
 ___NOTES___
+
+2026-05-22 Change Notes:
+ - Update to API v25.
+
 
 Created on 03/04/2024, 14:11:51
 
