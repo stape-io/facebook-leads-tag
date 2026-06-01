@@ -4,15 +4,10 @@ const JSON = require('JSON');
 const Math = require('Math');
 const sendHttpRequest = require('sendHttpRequest');
 const getTimestampMillis = require('getTimestampMillis');
-const getContainerVersion = require('getContainerVersion');
-const logToConsole = require('logToConsole');
-const getRequestHeader = require('getRequestHeader');
 const getAllEventData = require('getAllEventData');
 
 /**********************************************************************************************/
 
-const isLoggingEnabled = determinateIsLoggingEnabled();
-const traceId = isLoggingEnabled ? getRequestHeader('trace-id') : undefined;
 const eventData = getAllEventData();
 
 const API_VERSION = '25.0';
@@ -31,36 +26,9 @@ const postBody = {
 
 if (data.testId) postBody.test_event_code = data.testId;
 
-if (isLoggingEnabled) {
-  logToConsole(
-    JSON.stringify({
-      Name: 'FacebookLead',
-      Type: 'Request',
-      TraceId: traceId,
-      EventName: mappedEventData.event_name,
-      RequestMethod: 'POST',
-      RequestUrl: postUrl,
-      RequestBody: postBody
-    })
-  );
-}
-
 sendHttpRequest(
   postUrl,
   (statusCode, headers, body) => {
-    if (isLoggingEnabled) {
-      logToConsole(
-        JSON.stringify({
-          Name: 'FacebookLead',
-          Type: 'Response',
-          TraceId: traceId,
-          EventName: mappedEventData.event_name,
-          ResponseStatusCode: statusCode,
-          ResponseHeaders: headers,
-          ResponseBody: body
-        })
-      );
-    }
     if (statusCode >= 200 && statusCode < 300) {
       data.gtmOnSuccess();
     } else {
@@ -98,26 +66,4 @@ function enc(data) {
 
 function encPath(data) {
   return encodeUri(data || '');
-}
-
-function determinateIsLoggingEnabled() {
-  const containerVersion = getContainerVersion();
-  const isDebug = !!(
-    containerVersion &&
-    (containerVersion.debugMode || containerVersion.previewMode)
-  );
-
-  if (!data.logType) {
-    return isDebug;
-  }
-
-  if (data.logType === 'no') {
-    return false;
-  }
-
-  if (data.logType === 'debug') {
-    return isDebug;
-  }
-
-  return data.logType === 'always';
 }
