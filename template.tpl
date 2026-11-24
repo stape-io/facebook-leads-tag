@@ -97,6 +97,38 @@ ___TEMPLATE_PARAMETERS___
     "displayName": "Test ID",
     "simpleValueType": true,
     "help": "Provide a Test ID if you want to test server-side events in the Test Events feature of Events Manager."
+  },
+  {
+    "type": "CHECKBOX",
+    "name": "useOptimisticScenario",
+    "checkboxText": "Use Optimistic Scenario",
+    "simpleValueType": true,
+    "help": "The tag will call gtmOnSuccess() without waiting for a response from the API. This will speed up sGTM response time however your tag will always return the status fired successfully even in case it is not."
+  },
+  {
+    "type": "GROUP",
+    "name": "tagExecutionConsentSettingsGroup",
+    "displayName": "Tag Execution Consent Settings",
+    "groupStyle": "ZIPPY_CLOSED",
+    "subParams": [
+      {
+        "type": "RADIO",
+        "name": "adStorageConsent",
+        "radioItems": [
+          {
+            "value": "optional",
+            "displayValue": "Send data always"
+          },
+          {
+            "value": "required",
+            "displayValue": "Send data in case marketing consent given",
+            "help": "Aborts the tag execution if marketing consent (\u003ci\u003ead_storage\u003c/i\u003e Google Consent Mode or Stape\u0027s Data Tag parameter) is not given."
+          }
+        ],
+        "simpleValueType": true,
+        "defaultValue": "optional"
+      }
+    ]
   }
 ]
 
@@ -104,54 +136,51 @@ ___TEMPLATE_PARAMETERS___
 ___SANDBOXED_JS_FOR_SERVER___
 
 const encodeUriComponent = require('encodeUriComponent');
-const encodeUri = require('encodeUri');
+const getAllEventData = require('getAllEventData');
+const getRequestHeader = require('getRequestHeader');
+const getTimestampMillis = require('getTimestampMillis');
+const getType = require('getType');
 const JSON = require('JSON');
+const makeInteger = require('makeInteger');
+const makeString = require('makeString');
 const Math = require('Math');
 const sendHttpRequest = require('sendHttpRequest');
-const getTimestampMillis = require('getTimestampMillis');
-const getAllEventData = require('getAllEventData');
 
-/**********************************************************************************************/
+/*==============================================================================
+==============================================================================*/
 
 const eventData = getAllEventData();
+const API_VERSION = '26.0';
 
-const API_VERSION = '25.0';
-const postUrl =
-  'https://graph.facebook.com/v' +
-  API_VERSION +
-  '/' +
-  encPath(data.pixelId) +
-  '/events?access_token=' +
-  enc(data.accessToken);
+if (shouldExitEarly(data, eventData)) {
+  return data.gtmOnSuccess();
+}
 
-const mappedEventData = getMappedEventData();
-const postBody = {
-  data: [mappedEventData]
-};
+const postBody = mapEvent(data, eventData);
+sendRequest(data, postBody);
 
-if (data.testId) postBody.test_event_code = data.testId;
+if (isUIFieldTrue(data.useOptimisticScenario)) {
+  return data.gtmOnSuccess();
+}
 
-sendHttpRequest(
-  postUrl,
-  (statusCode, headers, body) => {
-    if (statusCode >= 200 && statusCode < 300) {
-      data.gtmOnSuccess();
-    } else {
-      data.gtmOnFailure();
-    }
-  },
-  { headers: { 'content-type': 'application/json' }, method: 'POST' },
-  JSON.stringify(postBody)
-);
+/*==============================================================================
+  Vendor related functions
+==============================================================================*/
 
-/**********************************************************************************************/
-// Vendor related functions
+function getEventName(data, eventData) {
+  return data.eventName || eventData.event_name || eventData.eventName || eventData.event;
+}
 
-function getMappedEventData() {
-  return {
-    event_name: data.eventName || eventData.event_name || eventData.eventName || eventData.event,
+function getEventTime(data) {
+  if (isValidValue(data.eventTime)) return makeInteger(data.eventTime);
+  return Math.round(getTimestampMillis() / 1000);
+}
+
+function mapEvent(data, eventData) {
+  const mappedEventData = {
+    event_name: getEventName(data, eventData),
     action_source: 'system_generated',
-    event_time: data.eventTime || Math.round(getTimestampMillis() / 1000),
+    event_time: getEventTime(data),
     custom_data: {
       lead_event_source: data.leadEventSource,
       event_source: 'crm'
@@ -160,18 +189,82 @@ function getMappedEventData() {
       lead_id: data.leadId
     }
   };
+
+  const postBody = {
+    data: [mappedEventData]
+  };
+
+  if (isValidValue(data.testId)) postBody.test_event_code = data.testId;
+
+  return postBody;
 }
 
-/**********************************************************************************************/
-// Helpers
+function sendRequest(data, postBody) {
+  const postUrl =
+    'https://graph.facebook.com/v' + API_VERSION + '/' + enc(data.pixelId) + '/events';
+
+  return sendHttpRequest(
+    postUrl,
+    {
+      headers: {
+        'content-type': 'application/json',
+        authorization: 'Bearer ' + data.accessToken
+      },
+      method: 'POST'
+    },
+    JSON.stringify(postBody)
+  )
+    .then((result) => {
+      if (isUIFieldTrue(data.useOptimisticScenario)) return;
+      if (result.statusCode >= 200 && result.statusCode < 300) return data.gtmOnSuccess();
+      return data.gtmOnFailure();
+    })
+    .catch(() => {
+      if (isUIFieldTrue(data.useOptimisticScenario)) return;
+      return data.gtmOnFailure();
+    });
+}
+
+/*==============================================================================
+  Helpers
+==============================================================================*/
+
+function getUrl(eventData) {
+  return eventData.page_location || getRequestHeader('referer') || eventData.page_referrer;
+}
+
+function shouldExitEarly(data, eventData) {
+  if (!isConsentGivenOrNotRequired(data, eventData)) return true;
+
+  const url = getUrl(eventData);
+  if (url && url.lastIndexOf('https://gtm-msr.appspot.com/', 0) === 0) return true;
+
+  return false;
+}
 
 function enc(data) {
-  return encodeUriComponent(data || '');
+  if (['null', 'undefined'].indexOf(getType(data)) !== -1) data = '';
+  return encodeUriComponent(makeString(data));
 }
 
-function encPath(data) {
-  return encodeUri(data || '');
+function isValidValue(value) {
+  const valueType = getType(value);
+  if (valueType === 'null' || valueType === 'undefined' || value !== value) return false;
+  return value !== '' && value !== 'undefined' && value !== 'null';
 }
+
+function isUIFieldTrue(field) {
+  return [true, 'true'].indexOf(field) !== -1;
+}
+
+function isConsentGivenOrNotRequired(data, eventData) {
+  if (data.adStorageConsent !== 'required') return true;
+  if (eventData.consent_state) return !!eventData.consent_state.ad_storage;
+  const xGaGcs = eventData['x-ga-gcs'] || ''; // x-ga-gcs is a string like "G110"
+  return xGaGcs[2] === '1';
+}
+
+
 ___SERVER_PERMISSIONS___
 
 [
@@ -228,16 +321,353 @@ ___SERVER_PERMISSIONS___
       "isEditedByUser": true
     },
     "isRequired": true
+  },
+  {
+    "instance": {
+      "key": {
+        "publicId": "read_request",
+        "versionId": "1"
+      },
+      "param": [
+        {
+          "key": "headerWhitelist",
+          "value": {
+            "type": 2,
+            "listItem": [
+              {
+                "type": 3,
+                "mapKey": [
+                  {
+                    "type": 1,
+                    "string": "headerName"
+                  }
+                ],
+                "mapValue": [
+                  {
+                    "type": 1,
+                    "string": "referer"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "key": "headersAllowed",
+          "value": {
+            "type": 8,
+            "boolean": true
+          }
+        },
+        {
+          "key": "requestAccess",
+          "value": {
+            "type": 1,
+            "string": "specific"
+          }
+        },
+        {
+          "key": "headerAccess",
+          "value": {
+            "type": 1,
+            "string": "specific"
+          }
+        },
+        {
+          "key": "queryParameterAccess",
+          "value": {
+            "type": 1,
+            "string": "any"
+          }
+        }
+      ]
+    },
+    "clientAnnotations": {
+      "isEditedByUser": true
+    },
+    "isRequired": true
   }
 ]
 
 
 ___TESTS___
 
-scenarios: []
+scenarios:
+- name: '[Request] URL, headers, method and body are correctly built and sent'
+  code: |-
+    mock('sendHttpRequest', (requestUrl, requestOptions, requestBody) => {
+      assertThat(requestUrl).isEqualTo(
+        'https://graph.facebook.com/v' + EXPECTED_API_VERSION + '/' + mockData.pixelId + '/events'
+      );
+      assertThat(requestUrl).doesNotContain('access_token');
+      assertThat(requestOptions).isEqualTo({
+        headers: {
+          'content-type': 'application/json',
+          authorization: 'Bearer ' + mockData.accessToken
+        },
+        method: 'POST'
+      });
+
+      const parsedRequestBody = JSON.parse(requestBody);
+      assertThat(parsedRequestBody).isEqualTo({
+        data: [
+          {
+            event_name: mockData.eventName,
+            action_source: 'system_generated',
+            event_time: 1700000000,
+            custom_data: {
+              lead_event_source: mockData.leadEventSource,
+              event_source: 'crm'
+            },
+            user_data: {
+              lead_id: mockData.leadId
+            }
+          }
+        ],
+        test_event_code: mockData.testId
+      });
+
+      return Promise.create((resolve) => resolve({ statusCode: 200 }));
+    });
+
+    runCode(mockData);
+
+    callLater(() => {
+      assertApi('sendHttpRequest').wasCalled();
+      assertApi('gtmOnSuccess').wasCalled();
+      assertApi('gtmOnFailure').wasNotCalled();
+    });
+- name: '[Request] Pixel ID is URL encoded in the request path'
+  code: |-
+    mockData.pixelId = '123/456?a=b';
+
+    mock('sendHttpRequest', (requestUrl) => {
+      assertThat(requestUrl).isEqualTo(
+        'https://graph.facebook.com/v' + EXPECTED_API_VERSION + '/123%2F456%3Fa%3Db/events'
+      );
+      return Promise.create((resolve) => resolve({ statusCode: 200 }));
+    });
+
+    runCode(mockData);
+
+    callLater(() => {
+      assertApi('sendHttpRequest').wasCalled();
+      assertApi('gtmOnSuccess').wasCalled();
+      assertApi('gtmOnFailure').wasNotCalled();
+    });
+- name: '[Event Name] Falls back to event_name, eventName and event from Event Data'
+  code: |-
+    const sentEventNames = [];
+    mock('sendHttpRequest', (requestUrl, requestOptions, requestBody) => {
+      sentEventNames.push(JSON.parse(requestBody).data[0].event_name);
+      return Promise.create((resolve) => resolve({ statusCode: 200 }));
+    });
+
+    [
+      { eventData: { event_name: 'from_event_name', eventName: 'x', event: 'y' } },
+      { eventData: { eventName: 'from_eventName', event: 'y' } },
+      { eventData: { event: 'from_event' } }
+    ].forEach((scenario) => {
+      mock('getAllEventData', scenario.eventData);
+      const copyMockData = createMockData({ eventName: undefined });
+      runCode(copyMockData);
+    });
+
+    callLater(() => {
+      assertThat(sentEventNames).isEqualTo(['from_event_name', 'from_eventName', 'from_event']);
+      assertApi('gtmOnSuccess').wasCalled();
+      assertApi('gtmOnFailure').wasNotCalled();
+    });
+- name: '[Event Time] Uses the UI value as integer, or the current time in seconds when not
+    set'
+  code: |-
+    const sentEventTimes = [];
+    mock('sendHttpRequest', (requestUrl, requestOptions, requestBody) => {
+      sentEventTimes.push(JSON.parse(requestBody).data[0].event_time);
+      return Promise.create((resolve) => resolve({ statusCode: 200 }));
+    });
+
+    ['1690000000', 1690000001, undefined, '', 'undefined', 'null'].forEach((eventTime) => {
+      runCode(createMockData({ eventTime: eventTime }));
+    });
+
+    callLater(() => {
+      assertThat(sentEventTimes).isEqualTo([
+        1690000000,
+        1690000001,
+        1700000000,
+        1700000000,
+        1700000000,
+        1700000000
+      ]);
+      assertApi('gtmOnSuccess').wasCalled();
+      assertApi('gtmOnFailure').wasNotCalled();
+    });
+- name: '[Test ID] test_event_code is not sent when Test ID is not set'
+  code: |-
+    let requestBodies = [];
+    mock('sendHttpRequest', (requestUrl, requestOptions, requestBody) => {
+      requestBodies.push(JSON.parse(requestBody));
+      return Promise.create((resolve) => resolve({ statusCode: 200 }));
+    });
+
+    [undefined, ''].forEach((testId) => {
+      runCode(createMockData({ testId: testId }));
+    });
+
+    callLater(() => {
+      assertThat(requestBodies).hasLength(2);
+      requestBodies.forEach((requestBody) => {
+        assertThat(requestBody.test_event_code).isUndefined();
+      });
+      assertApi('gtmOnSuccess').wasCalled();
+      assertApi('gtmOnFailure').wasNotCalled();
+    });
+- name: '[Early Exit] Request is not sent when ad_storage consent is required and denied'
+  code: |-
+    mockData.adStorageConsent = 'required';
+
+    [
+      { 'x-ga-gcs': 'G100' },
+      { 'x-ga-gcs': 'G101' },
+      { consent_state: { ad_storage: false } },
+      {}
+    ].forEach((eventData) => {
+      mock('getAllEventData', eventData);
+      runCode(mockData);
+    });
+
+    assertApi('sendHttpRequest').wasNotCalled();
+    assertApi('gtmOnSuccess').wasCalled();
+    assertApi('gtmOnFailure').wasNotCalled();
+- name: '[Consent] Request is sent when ad_storage consent is required and granted'
+  code: |-
+    mockData.adStorageConsent = 'required';
+
+    let requestCount = 0;
+    mock('sendHttpRequest', () => {
+      requestCount++;
+      return Promise.create((resolve) => resolve({ statusCode: 200 }));
+    });
+
+    [{ 'x-ga-gcs': 'G110' }, { 'x-ga-gcs': 'G111' }, { consent_state: { ad_storage: true } }].forEach(
+      (eventData) => {
+        mock('getAllEventData', eventData);
+        runCode(mockData);
+      }
+    );
+
+    callLater(() => {
+      assertThat(requestCount).isEqualTo(3);
+      assertApi('gtmOnSuccess').wasCalled();
+      assertApi('gtmOnFailure').wasNotCalled();
+    });
+- name: '[Early Exit] Request is not sent for GTM Measurement Debugger page requests'
+  code: |-
+    mock('getAllEventData', { page_location: 'https://gtm-msr.appspot.com/render' });
+    runCode(mockData);
+
+    mock('getAllEventData', {});
+    mock('getRequestHeader', (header) => {
+      if (header === 'referer') return 'https://gtm-msr.appspot.com/render';
+    });
+    runCode(mockData);
+
+    assertApi('sendHttpRequest').wasNotCalled();
+    assertApi('gtmOnSuccess').wasCalled();
+    assertApi('gtmOnFailure').wasNotCalled();
+- name: '[Failure] gtmOnFailure is called when the API responds with a non-2xx status code'
+  code: |-
+    mock('sendHttpRequest', () => {
+      return Promise.create((resolve) => resolve({ statusCode: 400, body: '{"error":{}}' }));
+    });
+
+    runCode(mockData);
+
+    callLater(() => {
+      assertApi('sendHttpRequest').wasCalled();
+      assertApi('gtmOnSuccess').wasNotCalled();
+      assertApi('gtmOnFailure').wasCalled();
+    });
+- name: '[Failure] gtmOnFailure is called when the request rejects'
+  code: |-
+    mock('sendHttpRequest', () => {
+      return Promise.create((resolve, reject) => reject({ reason: 'failed' }));
+    });
+
+    runCode(mockData);
+
+    callLater(() => {
+      assertApi('sendHttpRequest').wasCalled();
+      assertApi('gtmOnSuccess').wasNotCalled();
+      assertApi('gtmOnFailure').wasCalled();
+    });
+- name: '[Optimistic Scenario] gtmOnSuccess is called without waiting for the API response'
+  code: |-
+    mock('sendHttpRequest', () => {
+      return Promise.create((resolve, reject) => reject({ reason: 'failed' }));
+    });
+
+    [true, 'true'].forEach((useOptimisticScenario) => {
+      runCode(createMockData({ useOptimisticScenario: useOptimisticScenario }));
+    });
+
+    assertApi('sendHttpRequest').wasCalled();
+    assertApi('gtmOnSuccess').wasCalled();
+
+    callLater(() => {
+      assertApi('gtmOnFailure').wasNotCalled();
+    });
+setup: |-
+  const JSON = require('JSON');
+  const Promise = require('Promise');
+  const callLater = require('callLater');
+
+  const EXPECTED_API_VERSION = '26.0';
+
+  const assign = function () {
+    const target = arguments[0];
+    for (let i = 1; i < arguments.length; i++) {
+      for (let key in arguments[i]) {
+        target[key] = arguments[i][key];
+      }
+    }
+    return target;
+  };
+
+  const createMockData = (overrides) => {
+    return assign(
+      {
+        accessToken: 'accessToken123',
+        pixelId: '1234567890',
+        leadId: '1234567890123456',
+        leadEventSource: 'Stape CRM',
+        eventName: 'Lead Qualified',
+        eventTime: '1700000000',
+        testId: 'TEST123',
+        useOptimisticScenario: false,
+        adStorageConsent: 'optional'
+      },
+      overrides || {}
+    );
+  };
+
+  const mockData = createMockData();
+
+  mock('getAllEventData', { event_name: 'event_from_event_data' });
+  mock('getRequestHeader', () => undefined);
+  mock('getTimestampMillis', 1700000000123);
+  mock('sendHttpRequest', () => Promise.create((resolve) => resolve({ statusCode: 200 })));
 
 
 ___NOTES___
+
+2026-11-24 - Change Notes:
+  - Updated API to v26
+  - The access token is no longer sent in the request URL, so it doesn't leak into request logs, proxy logs or the server Preview's outgoing-request list; it now goes in the Authorization header
+  - Added Use Optimistic Scenario and Tag Execution Consent Settings (ad_storage) options, and the tag now skips GTM Measurement Debugger requests
+  - Event Time set in the UI is now sent as an integer, and empty or invalid Event Time and Test ID values are ignored
+  - Revamped the tag code to match the structure of the other Stape Meta tags and added unit tests
 
 2026-05-25 Change Notes:
  - Logging removal.
