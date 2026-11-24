@@ -1,52 +1,49 @@
 const encodeUriComponent = require('encodeUriComponent');
-const encodeUri = require('encodeUri');
+const getAllEventData = require('getAllEventData');
+const getRequestHeader = require('getRequestHeader');
+const getTimestampMillis = require('getTimestampMillis');
+const getType = require('getType');
 const JSON = require('JSON');
+const makeInteger = require('makeInteger');
+const makeString = require('makeString');
 const Math = require('Math');
 const sendHttpRequest = require('sendHttpRequest');
-const getTimestampMillis = require('getTimestampMillis');
-const getAllEventData = require('getAllEventData');
 
-/**********************************************************************************************/
+/*==============================================================================
+==============================================================================*/
 
 const eventData = getAllEventData();
+const API_VERSION = '26.0';
 
-const API_VERSION = '25.0';
-const postUrl =
-  'https://graph.facebook.com/v' +
-  API_VERSION +
-  '/' +
-  encPath(data.pixelId) +
-  '/events?access_token=' +
-  enc(data.accessToken);
+if (shouldExitEarly(data, eventData)) {
+  return data.gtmOnSuccess();
+}
 
-const mappedEventData = getMappedEventData();
-const postBody = {
-  data: [mappedEventData]
-};
+const postBody = mapEvent(data, eventData);
+sendRequest(data, postBody);
 
-if (data.testId) postBody.test_event_code = data.testId;
+if (isUIFieldTrue(data.useOptimisticScenario)) {
+  return data.gtmOnSuccess();
+}
 
-sendHttpRequest(
-  postUrl,
-  (statusCode, headers, body) => {
-    if (statusCode >= 200 && statusCode < 300) {
-      data.gtmOnSuccess();
-    } else {
-      data.gtmOnFailure();
-    }
-  },
-  { headers: { 'content-type': 'application/json' }, method: 'POST' },
-  JSON.stringify(postBody)
-);
+/*==============================================================================
+  Vendor related functions
+==============================================================================*/
 
-/**********************************************************************************************/
-// Vendor related functions
+function getEventName(data, eventData) {
+  return data.eventName || eventData.event_name || eventData.eventName || eventData.event;
+}
 
-function getMappedEventData() {
-  return {
-    event_name: data.eventName || eventData.event_name || eventData.eventName || eventData.event,
+function getEventTime(data) {
+  if (isValidValue(data.eventTime)) return makeInteger(data.eventTime);
+  return Math.round(getTimestampMillis() / 1000);
+}
+
+function mapEvent(data, eventData) {
+  const mappedEventData = {
+    event_name: getEventName(data, eventData),
     action_source: 'system_generated',
-    event_time: data.eventTime || Math.round(getTimestampMillis() / 1000),
+    event_time: getEventTime(data),
     custom_data: {
       lead_event_source: data.leadEventSource,
       event_source: 'crm'
@@ -55,15 +52,77 @@ function getMappedEventData() {
       lead_id: data.leadId
     }
   };
+
+  const postBody = {
+    data: [mappedEventData]
+  };
+
+  if (isValidValue(data.testId)) postBody.test_event_code = data.testId;
+
+  return postBody;
 }
 
-/**********************************************************************************************/
-// Helpers
+function sendRequest(data, postBody) {
+  const postUrl =
+    'https://graph.facebook.com/v' + API_VERSION + '/' + enc(data.pixelId) + '/events';
+
+  return sendHttpRequest(
+    postUrl,
+    {
+      headers: {
+        'content-type': 'application/json',
+        authorization: 'Bearer ' + data.accessToken
+      },
+      method: 'POST'
+    },
+    JSON.stringify(postBody)
+  )
+    .then((result) => {
+      if (isUIFieldTrue(data.useOptimisticScenario)) return;
+      if (result.statusCode >= 200 && result.statusCode < 300) return data.gtmOnSuccess();
+      return data.gtmOnFailure();
+    })
+    .catch(() => {
+      if (isUIFieldTrue(data.useOptimisticScenario)) return;
+      return data.gtmOnFailure();
+    });
+}
+
+/*==============================================================================
+  Helpers
+==============================================================================*/
+
+function getUrl(eventData) {
+  return eventData.page_location || getRequestHeader('referer') || eventData.page_referrer;
+}
+
+function shouldExitEarly(data, eventData) {
+  if (!isConsentGivenOrNotRequired(data, eventData)) return true;
+
+  const url = getUrl(eventData);
+  if (url && url.lastIndexOf('https://gtm-msr.appspot.com/', 0) === 0) return true;
+
+  return false;
+}
 
 function enc(data) {
-  return encodeUriComponent(data || '');
+  if (['null', 'undefined'].indexOf(getType(data)) !== -1) data = '';
+  return encodeUriComponent(makeString(data));
 }
 
-function encPath(data) {
-  return encodeUri(data || '');
+function isValidValue(value) {
+  const valueType = getType(value);
+  if (valueType === 'null' || valueType === 'undefined' || value !== value) return false;
+  return value !== '' && value !== 'undefined' && value !== 'null';
+}
+
+function isUIFieldTrue(field) {
+  return [true, 'true'].indexOf(field) !== -1;
+}
+
+function isConsentGivenOrNotRequired(data, eventData) {
+  if (data.adStorageConsent !== 'required') return true;
+  if (eventData.consent_state) return !!eventData.consent_state.ad_storage;
+  const xGaGcs = eventData['x-ga-gcs'] || ''; // x-ga-gcs is a string like "G110"
+  return xGaGcs[2] === '1';
 }
